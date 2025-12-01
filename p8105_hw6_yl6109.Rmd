@@ -1,0 +1,84 @@
+---
+title: "p8105_hw6_yl6109"
+author: "Yurou Liu"
+date: "2025-11-30"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+# Tidying data
+hc_data = read_csv("./data/homicide-data.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate(city_state = paste(city, state, sep = ", "))
+
+hc_df = hc_data %>% 
+  filter(!city %in% c("Dallas", "Phoenix", "Kansas City", "Tulsa")) %>% 
+  filter(victim_race %in% c("White", "Black")) %>% 
+  mutate(resolved = ifelse(disposition == "Closed by arrest", 1, 0)) %>% 
+  mutate(victim_age = ifelse(victim_age == "Unknown", NA, victim_age), 
+         victim_age = as.numeric(victim_age))
+
+# For Baltimore MD,
+btm_df = hc_df %>% 
+  filter(city == "Baltimore") %>% 
+  filter(!is.na(victim_age))
+
+btm_model = glm(resolved ~ victim_age + victim_sex + victim_race, data = btm_df, family = binomial())
+
+btm_results = btm_model %>% 
+  broom::tidy(conf.int = TRUE, exponentiate = TRUE)
+
+btm_hc_sex = btm_results %>% 
+  filter(term == "victim_sexMale") %>% 
+  select(estimate, conf.low, conf.high)
+
+# For each city, 
+city_data = hc_df %>% 
+  filter(!is.na(victim_age)) %>% 
+  group_by(city_state) %>% 
+  filter(length(unique(victim_sex)) == 2, 
+         length(unique(resolved)) == 2) %>%
+  ungroup()
+
+nested_city_data = city_data %>% 
+  group_by(city_state) %>% 
+  nest() %>% 
+  ungroup() 
+
+city_logistic = function(df) {
+    model = glm(resolved ~ victim_age + victim_sex + victim_race, data = df, family = binomial())
+    
+    broom::tidy(model, conf.int = TRUE, exponentiate = TRUE) %>%
+      filter(term == "victim_sexMale") %>%
+      select(estimate, conf.low, conf.high)
+}
+
+city_results = nested_city_data %>% 
+  mutate(model_output = map(data, city_logistic)) %>% 
+  unnest(model_output) %>% 
+  select(city_state, 
+         OR = estimate, 
+         OR_low = conf.low, 
+         OR_high = conf.high)
+
+# Visualization
+city_results_ordered = city_results %>% 
+  mutate(city_state = fct_reorder(city_state, OR))
+
+city_results_ordered %>% 
+  ggplot(aes(x = city_state, y = OR, ymin = OR_low, ymax = OR_high)) + 
+  geom_point(size = 1) + 
+  labs(title = "Adjusted Odds Ratios for Case Resolution: 
+Male vs Female Victims Across Cities") + 
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  geom_errorbar(width = 0.2, color = "gray50") + 
+  coord_flip() + 
+  theme(axis.text.y = element_text(size = 5), 
+        plot.title = element_text(hjust = 0.5))
+```
+Comment: the 
