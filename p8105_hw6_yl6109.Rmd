@@ -81,4 +81,4 @@ Male vs Female Victims Across Cities") +
   theme(axis.text.y = element_text(size = 5), 
         plot.title = element_text(hjust = 0.5))
 ```
-Comment: the 
+Comment: This plot shows that among 41 cities, the adjusted odds ratio for solving homicides comparing male victims to female victims of Richnomd VA, Nashville TN, Fresno CA and Stockton CA reached 1. The CIs for adjusted OR of 21 cities do not include 1, indicating that there is no statistically significant gender disparity in case resolution rates in these cities.
