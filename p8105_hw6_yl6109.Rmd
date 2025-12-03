@@ -8,7 +8,12 @@ output: github_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(modelr)
+library(broom)
 ```
+
+
+## Problem 1
 
 ```{r}
 # Tidying data
@@ -82,3 +87,65 @@ Male vs Female Victims Across Cities") +
         plot.title = element_text(hjust = 0.5))
 ```
 Comment: This plot shows that among 41 cities, the adjusted odds ratio for solving homicides comparing male victims to female victims of Richnomd VA, Nashville TN, Fresno CA and Stockton CA reached 1. The CIs for adjusted OR of 21 cities do not include 1, indicating that there is no statistically significant gender disparity in case resolution rates in these cities.
+
+## Problem 2
+
+```{r}
+# Bootstraps
+library(p8105.datasets)
+data("weather_df")
+
+set.seed(307)
+
+bootstraps = tibble(strap_number = 1:5000) %>% 
+  mutate(strap_sample = map(strap_number, ~ {
+    sample_n(weather_df, size = nrow(weather_df), replace = TRUE)
+  }), 
+  model = map(strap_sample, ~ lm(tmax ~ tmin + prcp, data = .x)), 
+  r_squared = map_dbl(model, ~ glance(.x)$r.squared), 
+  coefs = map(model, tidy))
+
+boot_results = bootstraps %>%
+  unnest(coefs) %>% 
+  select(strap_number, term, estimate, r_squared) %>% 
+  pivot_wider(names_from = term, 
+              values_from = estimate) %>% 
+  mutate(ratio = tmin / prcp) %>% 
+  rename(beta_1 = tmin,
+         beta_2 = prcp) %>% 
+  filter(is.finite(ratio)) %>% 
+  print()
+
+# Plot: distribution of r^2
+plot_r2 = boot_results %>% 
+  ggplot(aes(x = r_squared)) + 
+  geom_histogram() + 
+  labs(title = "Bootsrap Distribution of R^2", 
+       x = expression(hat(r)^2)) + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Plot: distribution of ratio
+plot_ratio = boot_results %>% 
+  ggplot(aes(x = ratio)) + 
+  geom_histogram() + 
+  labs(title = "Bootstrap Distribution of Beta1/Beta2 Ratio", 
+       x = expression(hat(beta)[1] / hat(beta)[2])) + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(plot_r2)
+print(plot_ratio)
+
+# Confidence interval for r^2
+ci_r2 = boot_results %>% 
+  summarize(lower = quantile(r_squared, 0.025),
+            upper = quantile(r_squared, 0.975)) %>% 
+  print()
+
+# Confidence interval for ratio
+ci_ratio = boot_results %>% 
+  summarize(lower = quantile(ratio, 0.025),
+            upper = quantile(ratio, 0.975)) %>% 
+  print()
+```
+
+Comment: The distribution of r_squared is approximately normal distribution, the center falls around 0.04. The distribution of the ratio of beta1 to beta2 exhibits strong right skewness, with the majority clustering between -150 and -50.
