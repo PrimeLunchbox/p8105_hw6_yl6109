@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(modelr)
 library(broom)
+library(purrr)
 ```
 
 
@@ -149,3 +150,116 @@ ci_ratio = boot_results %>%
 ```
 
 Comment: The distribution of r_squared is approximately normal distribution, the center falls around 0.04. The distribution of the ratio of beta1 to beta2 exhibits strong right skewness, with the majority clustering between -150 and -50.
+
+## Problem 3
+
+```{r}
+# Data tidying
+bw_data = read_csv("./data/birthweight.csv") %>% 
+  janitor::clean_names()
+
+clean_data = bw_data %>% 
+  rename(
+    baby_sex = babysex,
+    head_circumference = bhead,
+    birth_length = blength,
+    birth_weight = bwt,
+    delivery_weight = delwt,
+    family_income = fincome,
+    father_race = frace,
+    gestational_age = gaweeks,
+    malformations = malform,
+    menarche_age = menarche,
+    mother_height = mheight,
+    mother_age = momage,
+    mother_race = mrace,
+    parity = parity,
+    prior_low_birth_weight = pnumlbw,
+    prior_small_gestational_age = pnumsga,
+    pre_pregnancy_bmi = ppbmi,
+    pre_pregnancy_weight = ppwt,
+    cigarettes_per_day = smoken,
+    weight_gain = wtgain
+  ) %>% 
+  mutate(
+    baby_sex = factor(baby_sex, levels = c(1, 2)), 
+    father_race = factor(father_race, levels = c(1, 2, 3, 4, 8, 9)), 
+    malformations = factor(malformations, levels = c(0, 1)), 
+    mother_race = factor(mother_race, levels = c(1, 2, 3, 4, 8))
+  ) %>% 
+  drop_na()
+
+# Propose regression model
+model_bw = lm(birth_weight ~ 
+                head_circumference + 
+                birth_length + 
+                baby_sex + 
+                malformations + 
+                mother_height + 
+                mother_age + 
+                pre_pregnancy_bmi + 
+                gestational_age + 
+                parity + 
+                cigarettes_per_day + 
+                weight_gain + 
+                family_income + 
+                mother_race, 
+              data = clean_data)
+summary(model_bw)
+
+model_step = step(model_bw, direction = "both") 
+summary(model_step)
+
+AIC_full = AIC(model_bw)
+AIC_step = AIC(model_step)
+difference = AIC_full - AIC_step
+
+# AIC of model_step is 3.8 lower than model_bw. Thus model birth_weight ~ head_circumference + birth_length + baby_sex + mother_height + pre_pregnancy_bmi + gestational_age + parity + cigarettes_per_day + weight_gain + family_income + mother_race is better.
+
+# Plot: residuals vs fitted values
+model_final = model_step
+
+data_with_residual = clean_data %>% 
+  add_predictions(model = model_final) %>% 
+  add_residuals(model = model_final)
+
+data_with_residual %>% 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point(alpha = 0.3, color = "gray20") + 
+  labs(title = "Residuals vs Fitted Values", 
+       x = "Fitted Values (g)", 
+       y = "Residuals (g)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Compare model_final with the other two models
+set.seed(307)
+
+cv_df = crossv_mc(clean_data, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  ) %>% 
+  mutate(
+    model_simple = map(train, ~lm(birth_weight ~ birth_length + gestational_age, data = .x)), 
+    model_interaction = map(train, ~lm(birth_weight ~ head_circumference * birth_length * baby_sex, data = .x)), 
+    model_final = map(train, ~lm(formula(model_final), data = .x))
+  ) %>% 
+  mutate(
+    rmse_simple = map2_dbl(model_simple, test, ~rmse(model = .x, data = .y)),
+    rmse_interaction = map2_dbl(model_interaction, test, ~rmse(model = .x, data = .y)),
+    rmse_final = map2_dbl(model_final, test, ~rmse(model = .x, data = .y))
+  )
+
+cv_result = cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  summarize(
+    avg_rmse_simple = mean(rmse_simple),
+    avg_rmse_interaction = mean(rmse_interaction),
+    avg_rmse_final = mean(rmse_final),
+    sd_rmse_simple = sd(rmse_simple),
+    sd_rmse_interaction = sd(rmse_interaction),
+    sd_rmse_final = sd(rmse_final)
+  )
+```
+
+Comment: based on cross-validation results, the final model achieves lower prediction error (RMSE = 289.2g) compared to the simple model (332.4g) and demonstrates greater stability than the interaction model with smaller standard deviation, indicating that incorporating multiple relevant factors provides more accurate predictions of infant birth weight.
